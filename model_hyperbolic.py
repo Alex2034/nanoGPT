@@ -42,14 +42,14 @@ class CausalSelfAttention(nn.Module):
         self.n_head = config.n_head
         self.n_embd = config.n_embd
         self.dropout = config.dropout
+        self.mode = config.mode
         
         # flash attention make GPU go brrrrr but support is only in PyTorch >= 2.0
         self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention')
-        self.mode = config.mode
         
         if self.mode == 'hyperbolic':
             self.c = nn.Parameter(torch.tensor(1.0))
-            self.p = nn.Parameter(torch.tensor(1.0))
+            self.p = nn.Parameter(torch.tensor(2.0))
             self.eps = torch.tensor(1e-3)
         
         if not self.flash:
