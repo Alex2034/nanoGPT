@@ -89,7 +89,7 @@ class CausalSelfAttention(nn.Module):
             pk = pmath.expmap0(k)
             wei = pmath.dist_matrix(pq, pk, c=self.c)
             wei = 1 / (self.eps + wei)
-            wei = wei.masked_fill(self.bias[:T, :T] == 0, 0.) # (B, T, T)
+            wei = wei.masked_fill(self.bias[:,:,:T,:T] == 0, 0.) # (B, T, T)
             wei = wei / wei.sum(dim = -1, keepdim = True)
             # wei = F.softmax(wei, dim=-1) # (B, T, T)
             wei = self.attn_dropout(wei)

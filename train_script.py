@@ -1,4 +1,5 @@
 import argparse
+import time
 import datetime
 import os
 import torch
@@ -19,10 +20,7 @@ args = parser.parse_args()
 
 # Dataset preparation
 class TaoTeChingDataset(Dataset):
-    def __init__(self, path, block_size):
-        with open(path, 'r', encoding='utf-8') as f:
-            data = f.read()
-
+    def __init__(self, data, block_size):
         chars = sorted(list(set(data)))
         self.stoi = {ch: i for i, ch in enumerate(chars)}
         self.itos = {i: ch for i, ch in enumerate(chars)}
@@ -63,15 +61,15 @@ with open('data/tao.txt', 'r', encoding='utf-8') as f:
     overfit_data = data[17:301]
     overfit_val_data = data[306:474]
     
-overfit_dataset = TaoTeChingDataset(overfit_data, chars, block_size=args.block_size)
+overfit_dataset = TaoTeChingDataset(overfit_data, block_size=args.block_size)
 overfit_loader = DataLoader(overfit_dataset, batch_size=args.batch_size, shuffle=True)
     
-overfit_val_dataset = TaoTeChingDataset(overfit_val_data, chars, block_size=args.block_size)
+overfit_val_dataset = TaoTeChingDataset(overfit_val_data, block_size=args.block_size)
 overfit_val_loader = DataLoader(overfit_val_dataset, batch_size=args.batch_size, shuffle=False)
 
 # Device setup
 if torch.cuda.is_available():
-    gpu_id = '3' # select a single GPU
+    gpu_id = '0' # select a single GPU
     # gpu_id = '2,3' # select multiple GPUs
     os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
     device = torch.device("cuda")
@@ -89,7 +87,7 @@ model_args = dict(n_layer=6,
                   n_embd=args.n_embd, 
                   block_size=args.block_size, 
                   bias=False, 
-                  vocab_size=dataset.vocab_size, 
+                  vocab_size=overfit_dataset.vocab_size, 
                   dropout=0.0, 
                   mode=args.mode)
 
@@ -126,12 +124,8 @@ def evaluate(model, epoch, loader):
     val_loss /= len(loader) 
     return val_loss
 
-def save_checkpoint(model, optimizer, model_args, train_losses, val_losses, out_dir, args):
+def save_checkpoint(args, model, optimizer, model_args, train_losses, val_losses, filename, out_dir):
     os.makedirs(out_dir, exist_ok=True)
-    date_time_str = datetime.datetime.now().strftime("%m.%d, %H-%M")
-    dim = args.n_embd // args.n_head
-    mode = args.mode
-    filename = f"{date_time_str}, {dim}-dim, {mode} ckpt.pt"
     checkpoint = {
         'model': model.state_dict(),
         'optimizer': optimizer.state_dict(),
@@ -147,6 +141,12 @@ val_losses = []
 save_checkpoints = True
 out_dir = 'out'
 
+# filename for saving
+date_time_str = datetime.datetime.now().strftime("%m.%d, %H-%M")
+dim = model_args['n_embd'] // model_args['n_head']
+mode = args.mode
+filename = f"{date_time_str}, {dim}-dim, {mode}, {args.epochs} epochs ckpt.pt"
+
 for epoch in range(1, args.epochs + 1):
     start_time = time.time()
     train_loss = train(model, epoch, overfit_loader)
@@ -156,18 +156,12 @@ for epoch in range(1, args.epochs + 1):
     val_losses.append(val_loss)
 #     print(f"Epoch: {epoch} | Training Loss: {train_loss} | Validation Loss: {val_loss}")
 
-    # Conditionally save checkpoints
-    if save_checkpoints:
-        save_checkpoint(model, optimizer, model_args, train_losses, val_losses, out_dir, args)
-
     end_time = time.time()
-    if epoch % 10 == 0:
+    if epoch % 100 == 0:
         print(f"Epoch {epoch} completed in {end_time - start_time:.2f} seconds")
-
-
-
-
-
+    
+        if save_checkpoints:
+            save_checkpoint(args, model, optimizer, model_args, train_losses, val_losses, filename, out_dir)
 
 
 
