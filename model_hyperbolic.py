@@ -43,19 +43,20 @@ class CausalSelfAttention(nn.Module):
         self.n_embd = config.n_embd
         self.dropout = config.dropout
         self.mode = config.mode
+        self.mode_set = False
         
         # flash attention make GPU go brrrrr but support is only in PyTorch >= 2.0
-        self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention')
+#         self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention')
         
         if self.mode == 'hyperbolic':
             self.c = nn.Parameter(torch.tensor(1.0))
             self.p = nn.Parameter(torch.tensor(2.0))
             self.eps = torch.tensor(1e-3)
         
-        if not self.flash:
-            print("WARNING: using slow attention. Flash Attention requires PyTorch >= 2.0")
+#         if not self.flash:
+#             print("WARNING: using slow attention. Flash Attention requires PyTorch >= 2.0")
             # causal mask to ensure that attention is only applied to the left in the input sequence
-            self.register_buffer("bias", torch.tril(torch.ones(config.block_size, config.block_size))
+        self.register_buffer("bias", torch.tril(torch.ones(config.block_size, config.block_size))
                                         .view(1, 1, config.block_size, config.block_size))
 
     def forward(self, x):
@@ -68,26 +69,31 @@ class CausalSelfAttention(nn.Module):
         v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
 
         # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
-        if self.flash:
-            # efficient attention using Flash Attention CUDA kernels
-            y = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=self.dropout if self.training else 0, is_causal=True)
-        elif self.mode == 'original':
-            # manual implementation of attention
+#         if self.flash:
+#             # efficient attention using Flash Attention CUDA kernels
+#             y = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=self.dropout if self.training else 0, is_causal=True)
+        if self.mode == 'original':
+            if not self.mode_set:
+                print('Entered Original mode', flush = True)
+                self.mode_set = True
             att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
             att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
             att = F.softmax(att, dim=-1)
             att = self.attn_dropout(att)
             y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
-        elif self.mode == 'hyperbolic':
+        elif self.mode == 'hyperbolic': 
+            if not self.mode_set:
+                print('Entered Hyperbolic mode', flush = True)
+                self.mode_set = True
             pq = pmath.expmap0(q)
             pk = pmath.expmap0(k)
             wei = pmath.dist_matrix(pq, pk, c=self.c)
             wei = 1 / (self.eps + wei)
-            wei = wei.masked_fill(self.tril[:T, :T] == 0, 0.) # (B, T, T)
+            wei = wei.masked_fill(self.bias[:T, :T] == 0, 0.) # (B, T, T)
             wei = wei / wei.sum(dim = -1, keepdim = True)
             # wei = F.softmax(wei, dim=-1) # (B, T, T)
-            wei = self.dropout(wei)
-            v = self.value(x) # (B,T,C)
+            wei = self.attn_dropout(wei)
+#             v = self.value(x) # (B,T,C)
             y = wei @ v
         y = y.transpose(1, 2).contiguous().view(B, T, C) # re-assemble all head outputs side by side
         
