@@ -58,14 +58,14 @@ class TaoTeChingDataset(Dataset):
 with open('data/tao.txt', 'r', encoding='utf-8') as f:
     data = f.read()
     chars = sorted(list(set(data)))
-    overfit_data = data[17:301]
-    overfit_val_data = data[306:474]
+    small_data = data[10:14426]
+    small_val_data = data[14426:15768]
     
-overfit_dataset = TaoTeChingDataset(overfit_data, block_size=args.block_size)
-overfit_loader = DataLoader(overfit_dataset, batch_size=args.batch_size, shuffle=True)
+small_dataset = TaoTeChingDataset(small_data, block_size=args.block_size)
+small_loader = DataLoader(small_dataset, batch_size=args.batch_size, shuffle=True)
     
-overfit_val_dataset = TaoTeChingDataset(overfit_val_data, block_size=args.block_size)
-overfit_val_loader = DataLoader(overfit_val_dataset, batch_size=args.batch_size, shuffle=False)
+small_val_dataset = TaoTeChingDataset(small_val_data, block_size=args.block_size)
+small_val_loader = DataLoader(small_val_dataset, batch_size=args.batch_size, shuffle=False)
 
 # Device setup
 if torch.cuda.is_available():
@@ -87,7 +87,7 @@ model_args = dict(n_layer=6,
                   n_embd=args.n_embd, 
                   block_size=args.block_size, 
                   bias=False, 
-                  vocab_size=overfit_dataset.vocab_size, 
+                  vocab_size=small_dataset.vocab_size, 
                   dropout=0.0, 
                   mode=args.mode)
 
@@ -149,15 +149,15 @@ filename = f"{date_time_str}, {dim}-dim, {mode}, {args.epochs} epochs ckpt.pt"
 
 for epoch in range(1, args.epochs + 1):
     start_time = time.time()
-    train_loss = train(model, epoch, overfit_loader)
+    train_loss = train(model, epoch, small_loader)
     train_losses.append(train_loss)
-
-    val_loss = evaluate(model, epoch, overfit_val_loader)
-    val_losses.append(val_loss)
 #     print(f"Epoch: {epoch} | Training Loss: {train_loss} | Validation Loss: {val_loss}")
 
     end_time = time.time()
-    if epoch % 100 == 0:
+    if epoch % 10 == 0:
+        val_loss = evaluate(model, epoch, small_val_loader)
+        val_losses.append(val_loss)
+        
         print(f"Epoch {epoch} completed in {end_time - start_time:.2f} seconds")
     
         if save_checkpoints:

@@ -73,21 +73,21 @@ class CausalSelfAttention(nn.Module):
 #             # efficient attention using Flash Attention CUDA kernels
 #             y = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=self.dropout if self.training else 0, is_causal=True)
         if self.mode == 'original':
-            if not self.mode_set:
-                print('Entered Original mode', flush = True)
-                self.mode_set = True
+#             if not self.mode_set:
+#                 print('Entered Original mode', flush = True)
+#                 self.mode_set = True
             att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
             att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
             att = F.softmax(att, dim=-1)
             att = self.attn_dropout(att)
             y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
         elif self.mode == 'hyperbolic': 
-            if not self.mode_set:
-                print('Entered Hyperbolic mode', flush = True)
-                self.mode_set = True
+#             if not self.mode_set:
+#                 print('Entered Hyperbolic mode', flush = True)
+#                 self.mode_set = True
             pq = pmath.expmap0(q)
             pk = pmath.expmap0(k)
-            wei = pmath.dist_matrix(pq, pk, c=self.c)
+            wei = pmath.dist_matrix(pq, pk, c=self.c)**self.p
             wei = 1 / (self.eps + wei)
             wei = wei.masked_fill(self.bias[:,:,:T,:T] == 0, 0.) # (B, T, T)
             wei = wei / wei.sum(dim = -1, keepdim = True)
