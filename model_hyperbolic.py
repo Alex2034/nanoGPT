@@ -85,8 +85,8 @@ class CausalSelfAttention(nn.Module):
 #             if not self.mode_set:
 #                 print('Entered Hyperbolic mode', flush = True)
 #                 self.mode_set = True
-            pq = pmath.expmap0(q)
-            pk = pmath.expmap0(k)
+            pq = pmath.expmap0(q, c=self.c)
+            pk = pmath.expmap0(k, c=self.c)
             wei = pmath.dist_matrix(pq, pk, c=self.c)**self.p
             wei = 1 / (self.eps + wei)
             wei = wei.masked_fill(self.bias[:,:,:T,:T] == 0, 0.) # (B, T, T)

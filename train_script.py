@@ -14,8 +14,9 @@ parser.add_argument("--batch_size", type=int, default=32, help="Batch size for t
 parser.add_argument("--block_size", type=int, default=32, help="Context size (default: 32)")
 parser.add_argument("--epochs", type=int, default=10, help="Number of epochs to train (default: 10)")
 parser.add_argument("--learning_rate", type=float, default=3e-4, help="Learning rate (default: 0.003)")
-parser.add_argument("--n_embd", type=int, default=16, help="Embedding dimension (default: 16)")
+# parser.add_argument("--n_embd", type=int, default=16, help="Embedding dimension (default: 16)")
 parser.add_argument("--mode", type=str, default='original', help="Attention mode (default: original)")
+parser.add_argument("--gpu", type=str, default='0')
 args = parser.parse_args()
 
 # Dataset preparation
@@ -58,8 +59,8 @@ class TaoTeChingDataset(Dataset):
 with open('data/tao.txt', 'r', encoding='utf-8') as f:
     data = f.read()
     chars = sorted(list(set(data)))
-    small_data = data[10:14426]
-    small_val_data = data[14426:15768]
+    small_data = data[14:10095]
+    small_val_data = data[10095:12900]
     
 small_dataset = TaoTeChingDataset(small_data, block_size=args.block_size)
 small_loader = DataLoader(small_dataset, batch_size=args.batch_size, shuffle=True)
@@ -69,7 +70,7 @@ small_val_loader = DataLoader(small_val_dataset, batch_size=args.batch_size, shu
 
 # Device setup
 if torch.cuda.is_available():
-    gpu_id = '0' # select a single GPU
+    gpu_id = args.gpu # select a single GPU
     # gpu_id = '2,3' # select multiple GPUs
     os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
     device = torch.device("cuda")
@@ -82,9 +83,13 @@ else:
     
 # Model setup
 
-model_args = dict(n_layer=6, 
-                  n_head=8, 
-                  n_embd=args.n_embd, 
+n_layer = 8 
+n_head = 8
+n_embd = 24
+
+model_args = dict(n_layer=n_layer, 
+                  n_head=n_head, 
+                  n_embd=n_embd, 
                   block_size=args.block_size, 
                   bias=False, 
                   vocab_size=small_dataset.vocab_size, 
@@ -154,59 +159,15 @@ for epoch in range(1, args.epochs + 1):
 #     print(f"Epoch: {epoch} | Training Loss: {train_loss} | Validation Loss: {val_loss}")
 
     end_time = time.time()
-    if epoch % 10 == 0:
+    
+    
+    if epoch % 100 == 0:
         val_loss = evaluate(model, epoch, small_val_loader)
         val_losses.append(val_loss)
         
+    if epoch % 10 == 0:
         print(f"Epoch {epoch} completed in {end_time - start_time:.2f} seconds")
     
         if save_checkpoints:
             save_checkpoint(args, model, optimizer, model_args, train_losses, val_losses, filename, out_dir)
 
-
-
-
-# Old Training loop
-# def train(epoch):
-#     model.train()
-#     for idx, (data, target) in enumerate(train_loader):
-#         data, target = data.to(device), target.to(device)
-#         optimizer.zero_grad()
-#         logits, loss = model(data, target)
-#         loss.backward()
-#         optimizer.step()
-        
-#         if idx % 100 == 0:
-#             print(f"Epoch: {epoch} | Loss: {loss.item()}")
-            
-# def evaluate(model, device, validation_loader):
-#     model.eval()  # Set the model to evaluation mode
-#     val_loss = 0
-#     with torch.no_grad():  # No gradients needed for validation, saves memory and computations
-#         for data, target in validation_loader:
-#             data, target = data.to(device), target.to(device)
-#             logits, loss = model(data, target)
-#             val_loss += loss.item()  # Sum up batch loss
-#     val_loss /= len(validation_loader.dataset)  # Average loss
-#     return val_loss
-
-
-# for epoch in range(1, args.epochs + 1):
-#     train(epoch) 
-
-#     val_loss = evaluate(model, device, validation_loader)  # Evaluate on the validation set
-#     print(f"Epoch: {epoch}, Validation Loss: {val_loss}")
-
-#     # Conditionally save checkpoints
-#     if save_checkpoints:
-#         date_time_str = datetime.datetime.now().strftime("%H-%M")
-#         filename = f"{date_time_str}, {n_embd//n_heads}-dim, {mode} ckpt.pt"
-#         checkpoint = {
-#             'model': model.state_dict(),
-#             'optimizer': optimizer.state_dict(),
-#             'model_args': model_args,
-#             'train_losses': train_losses,
-#             'val_losses': [val_loss],  # Since it's a single value per epoch
-#         }
-#         os.makedirs(out_dir, exist_ok=True)
-#         torch.save(checkpoint, os.path.join(out_dir, filename))
