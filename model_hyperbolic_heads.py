@@ -49,10 +49,10 @@ class CausalSelfAttention(nn.Module):
 #         self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention')
         
         if self.mode == 'hyperbolic':
-            self.c = nn.Parameter(torch.tensor(0.3))
-            self.p = nn.Parameter(torch.tensor(2.5))
+            self.c = nn.Parameter(torch.tensor(1.0))
+            self.p = nn.Parameter(torch.tensor(2.0))
             self.eps = torch.tensor(1e-3)
-        
+
 #         if not self.flash:
 #             print("WARNING: using slow attention. Flash Attention requires PyTorch >= 2.0")
             # causal mask to ensure that attention is only applied to the left in the input sequence
