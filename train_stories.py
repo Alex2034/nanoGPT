@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader, Dataset
 from model_hyperbolic import GPT, GPTConfig  
 
 # Argument parsing
-parser = argparse.ArgumentParser(description="Train nanoGPT on Tao Te Ching")
+parser = argparse.ArgumentParser(description="Train nanoGPT on TinyStories")
 parser.add_argument("--batch_size", type=int, default=32, help="Batch size for training (default: 32)")
 parser.add_argument("--block_size", type=int, default=32, help="Context size (default: 32)")
 parser.add_argument("--epochs", type=int, default=10, help="Number of epochs to train (default: 10)")

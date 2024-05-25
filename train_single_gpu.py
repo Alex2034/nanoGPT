@@ -12,15 +12,14 @@ from model_hyperbolic import GPTConfig, GPT
 dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else 'float16'
 
 if torch.cuda.is_available():
-    gpu_id = '0' # select a single GPU
-    # gpu_id = '2,3' # select multiple GPUs
+    gpu_id = '0' 
     os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
     device = torch.device("cuda")
     print('GPU name: {:s}, gpu_id: {:s}'.format(torch.cuda.get_device_name(0),gpu_id))
 
 else:
     device = torch.device("cpu")
-    gpu_id = -1 # select CPU
+    gpu_id = -1 
     print(device)
 GPU name: Tesla V100-SXM2-16GB, gpu_id: 0
 # -----------------------------------------------------------------------------
