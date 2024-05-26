@@ -460,20 +460,6 @@ def poincare_mean(x, dim=0, c=1.0):
     mean = k2p(mean, c)
     return mean.squeeze(dim)
 
-# old version, not applicable to batches
-# def _mobius_addition_batch(x, y, c):
-#     xy = _tensor_dot(x, y)  # B x C
-#     x2 = x.pow(2).sum(-1, keepdim=True)  # B x 1
-#     y2 = y.pow(2).sum(-1, keepdim=True)  # C x 1
-#     num = 1 + 2 * c * xy + c * y2.permute(1, 0)  # B x C
-#     num = num.unsqueeze(2) * x.unsqueeze(1)
-#     num = num + (1 - c * x2).unsqueeze(2) * y  # B x C x D
-#     denom_part1 = 1 + 2 * c * xy  # B x C
-#     denom_part2 = c ** 2 * x2 * y2.permute(1, 0)
-#     denom = denom_part1 + denom_part2
-#     res = num / (denom.unsqueeze(2) + 1e-5)
-#     return res
-
 def pairwise_mobius_addition(x, y, c):
     """
     For x and y of size [B, T, C] performs pairwise mobius addition 
@@ -489,22 +475,22 @@ def pairwise_mobius_addition(x, y, c):
     s : tensor [B, T, T, C] 
         Batch of Mobius sums of each pair of points from sequences x and y
     """
-    # x_expanded: [16, 1, 32, 2], y_expanded: [16, 32, 1, 2] for broadcasting
+    # x_expanded: [B, 1, T, C], y_expanded: [B, T, 1, C] for broadcasting
     x_expanded = x.unsqueeze(-2)
     y_expanded = y.unsqueeze(-3)
     
-    xy = _tensor_dot(x_expanded, y_expanded)  # Now [16, 32, 32]
+    xy = _tensor_dot(x_expanded, y_expanded)  # Now [B, T, T]
     
-    x2 = x.pow(2).sum(-1, keepdim=True)  # [16, 1, 32]
-    y2 = y.pow(2).sum(-1, keepdim=True)  # [16, 32, 1]
+    x2 = x.pow(2).sum(-1, keepdim=True)  # [B, 1, T]
+    y2 = y.pow(2).sum(-1, keepdim=True)  # [B, T, 1]
 
-    scal_x = 1 + 2 * c * xy.unsqueeze(-1) + c * y2.unsqueeze(-2)  # [16, 32, 32, 1]
+    scal_x = 1 + 2 * c * xy.unsqueeze(-1) + c * y2.unsqueeze(-2)  # [B, T, T, 1]
     num = scal_x * x_expanded # Broadcast multiply by x
     scal_y = (1 - c * x2).unsqueeze(-2)
     num += scal_y * y_expanded  # Broadcast multiply by y
 
-    denom1 = 1 + 2 * c * xy.unsqueeze(-1)  # [16, 32, 32, 1]
-    denom2 = c ** 2 * x2.unsqueeze(-3) * y2.unsqueeze(-2)  # [16, 32, 32, 1]
+    denom1 = 1 + 2 * c * xy.unsqueeze(-1)  # [B, T, T, 1]
+    denom2 = c ** 2 * x2.unsqueeze(-3) * y2.unsqueeze(-2)  # [B, T, T, 1]
 
     denom = denom1 + denom2
 
