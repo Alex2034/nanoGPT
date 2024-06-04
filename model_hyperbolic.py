@@ -49,8 +49,8 @@ class CausalSelfAttention(nn.Module):
 #         self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention')
         
         if self.mode == 'hyperbolic':
-            self.c = nn.Parameter(torch.tensor(0.3))
-            self.p = nn.Parameter(torch.tensor(2.5))
+            self.c = nn.Parameter(torch.tensor(1.))
+            self.p = nn.Parameter(torch.tensor(2.))
             self.eps = torch.tensor(1e-3)
         
 #         if not self.flash:
