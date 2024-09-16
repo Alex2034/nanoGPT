@@ -6,6 +6,8 @@ gpu_id='1'
 
 compile = False
 
+mode='original'
+
 out_dir = 'out-tinystories'
 eval_interval = 200 # keep frequent because we'll overfit
 eval_iters = 200
@@ -20,13 +22,13 @@ wandb_log = False # override via command line if you like
 
 dataset = 'tinystories'
 gradient_accumulation_steps = 1
-batch_size = 20
+batch_size = 10
 block_size = 512 # context of up to 256 previous characters
 
 # baby GPT model :)
 n_layer = 6
 n_head = 6
-n_embd = 192
+n_embd = 12
 dropout = 0.2
 
 learning_rate = 3e-4 # with baby networks can afford to go a bit higher
