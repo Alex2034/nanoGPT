@@ -1,8 +1,13 @@
 # train a miniature character-level shakespeare model
 # good for debugging and playing on macbooks and such
 
+gpu_id='1'
+# os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
+
+compile = False
+
 out_dir = 'out-tinystories'
-eval_interval = 500 # keep frequent because we'll overfit
+eval_interval = 200 # keep frequent because we'll overfit
 eval_iters = 200
 log_interval = 10 # don't print too too often
 
@@ -15,8 +20,8 @@ wandb_log = False # override via command line if you like
 
 dataset = 'tinystories'
 gradient_accumulation_steps = 1
-batch_size = 24
-block_size = 256 # context of up to 256 previous characters
+batch_size = 20
+block_size = 512 # context of up to 256 previous characters
 
 # baby GPT model :)
 n_layer = 6
