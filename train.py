@@ -29,7 +29,7 @@ from torch.distributed import init_process_group, destroy_process_group
 
 from model_hyperbolic import GPTConfig, GPT
 
-gpu_id='1, 5'
+gpu_id='0'
 os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
 
 mode='original'
@@ -44,10 +44,10 @@ eval_iters = 200
 eval_only = False # if True, script exits right after the first eval
 always_save_checkpoint = True # if True, always save a checkpoint after each eval
 init_from = 'scratch' # 'scratch' or 'resume' or 'gpt2*'
-# wandb logging
-wandb_log = False # disabled by default
-wandb_project = 'owt'
-wandb_run_name = 'gpt2' # 'run' + str(time.time())
+# tensorboard logging
+tensorboard_log = False # disabled by default
+tensorboard_project = 'tinystories'
+tensorboard_run_name = 'gpt2' # 'run' + str(time.time())
 # data
 dataset = 'tinystories'
 gradient_accumulation_steps = 2 # used to simulate larger batch sizes
@@ -248,9 +248,15 @@ def get_lr(it):
     return min_lr + coeff * (learning_rate - min_lr)
 
 # logging
-if wandb_log and master_process:
-    import wandb
-    wandb.init(project=wandb_project, name=wandb_run_name, config=config)
+
+def make_run_name(hyperparams: dict) -> str:
+        return "_".join(f"{key}_{value}" for key, value in hyperparams.items())
+    
+
+if tensorboard_log and master_process:
+    log_dir = make_run_name(hyperparams)
+    from torch.utils.tensorboard import SummaryWriter
+    writer = SummaryWriter(log_dir=f"runs/{log_dir}") #wandb.init(project=wandb_project, name=wandb_run_name, config=config)
 
 # training loop
 X, Y = get_batch('train') # fetch the very first batch
@@ -269,14 +275,11 @@ while True:
     if iter_num % eval_interval == 0 and master_process:
         losses = estimate_loss()
         print(f"step {iter_num}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
-        if wandb_log:
-            wandb.log({
-                "iter": iter_num,
-                "train/loss": losses['train'],
-                "val/loss": losses['val'],
-                "lr": lr,
-                "mfu": running_mfu*100, # convert to percentage
-            })
+        if tensorboard_log and writer:
+            writer.add_scalar("train/loss", losses['train'], iter_num)
+            writer.add_scalar("val/loss", losses['val'], iter_num)
+            writer.add_scalar("learning_rate", lr, iter_num)
+            
         if losses['val'] < best_val_loss or always_save_checkpoint:
             best_val_loss = losses['val']
             if iter_num > 0:
