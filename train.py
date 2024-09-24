@@ -46,8 +46,9 @@ always_save_checkpoint = True # if True, always save a checkpoint after each eva
 init_from = 'scratch' # 'scratch' or 'resume' or 'gpt2*'
 # tensorboard logging
 tensorboard_log = False # disabled by default
+wandb_log = False
 tensorboard_project = 'tinystories'
-tensorboard_run_name = 'gpt2' # 'run' + str(time.time())
+tensorboard_run_name = 'run_' + str(f"{time.time():.0f}")# 'run' + str(time.time())
 # data
 dataset = 'tinystories'
 gradient_accumulation_steps = 2 # used to simulate larger batch sizes
@@ -254,9 +255,13 @@ def make_run_name(hyperparams: dict) -> str:
     
 
 if tensorboard_log and master_process:
-    log_dir = make_run_name(hyperparams)
+    log_dir = make_run_name(model_args)
     from torch.utils.tensorboard import SummaryWriter
     writer = SummaryWriter(log_dir=f"runs/{log_dir}") #wandb.init(project=wandb_project, name=wandb_run_name, config=config)
+
+if wandb_log and master_process:
+    import wandb
+    wandb.init(project=tensorboard_project, name=make_run_name(model_args), config=config)
 
 # training loop
 X, Y = get_batch('train') # fetch the very first batch
@@ -279,6 +284,14 @@ while True:
             writer.add_scalar("train/loss", losses['train'], iter_num)
             writer.add_scalar("val/loss", losses['val'], iter_num)
             writer.add_scalar("learning_rate", lr, iter_num)
+
+        if wandb_log:
+            wandb.log({
+                "iter": iter_num,
+                "train/loss_eval": losses['train'],
+                "val/loss_eval": losses['val'],
+                "lr": lr,
+            })
             
         if losses['val'] < best_val_loss or always_save_checkpoint:
             best_val_loss = losses['val']
@@ -292,7 +305,7 @@ while True:
                     'config': config,
                 }
                 print(f"saving checkpoint to {out_dir}")
-                torch.save(checkpoint, os.path.join(out_dir, 'ckpt.pt'))
+                torch.save(checkpoint, os.path.join(out_dir, 'ckpt_'+str(mode)+'.pt'))
     if iter_num == 0 and eval_only:
         break
 
@@ -315,7 +328,9 @@ while True:
     # clip the gradient
     if grad_clip != 0.0:
         scaler.unscale_(optimizer)
-        torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+        norm = torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+        writer.add_scalar('Gradient Norm', norm, iter_num)
+        
     # step the optimizer and scaler if training in fp16
     scaler.step(optimizer)
     scaler.update()

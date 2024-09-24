@@ -50,7 +50,8 @@ class CausalSelfAttention(nn.Module):
         
         if self.mode == 'hyperbolic':
             self.c = nn.Parameter(torch.tensor(1.))
-            self.p = nn.Parameter(torch.tensor(2.))
+            # self.p = nn.Parameter(torch.tensor(2.))
+            self.p = torch.tensor(2.)
             self.eps = torch.tensor(1e-3)
         
 #         if not self.flash:
