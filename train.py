@@ -24,11 +24,13 @@ from contextlib import nullcontext
 
 import numpy as np
 import torch
+from torch.nn import functional as F
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import init_process_group, destroy_process_group
 
 from model_hyperbolic import GPTConfig, GPT
 from torch.utils.tensorboard import SummaryWriter
+import tiktoken
 
 gpu_id='0'
 os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
@@ -40,8 +42,9 @@ mode='original'
 # I/O
 out_dir = '/raid/out'
 eval_interval = 200
-log_interval = 10
-eval_iters = 200
+log_interval = 100
+sample_interval = 1000
+eval_iters = 10
 eval_only = False # if True, script exits right after the first eval
 always_save_checkpoint = True # if True, always save a checkpoint after each eval
 init_from = 'scratch' # 'scratch' or 'resume' or 'gpt2*'
@@ -139,6 +142,7 @@ def get_batch(split):
 # init these up here, can override if init_from='resume' (i.e. from a checkpoint)
 iter_num = 0
 best_val_loss = 1e9
+enc = tiktoken.get_encoding('gpt2')
 
 # attempt to derive vocab_size from the dataset
 meta_path = os.path.join(data_dir, 'meta.pkl')
@@ -305,6 +309,7 @@ while True:
                 }
                 print(f"saving checkpoint to {out_dir}")
                 torch.save(checkpoint, os.path.join(out_dir, 'ckpt_'+str(mode)+'.pt'))
+
     if iter_num == 0 and eval_only:
         break
 
@@ -328,7 +333,6 @@ while True:
     if grad_clip != 0.0:
         scaler.unscale_(optimizer)
         norm = torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
-        writer.add_scalar('Gradient Norm', norm, iter_num)
         
     # step the optimizer and scaler if training in fp16
     scaler.step(optimizer)
@@ -336,10 +340,58 @@ while True:
     # flush the gradients as soon as we can, no need for this memory anymore
     optimizer.zero_grad(set_to_none=True)
 
+    # Batch sampling from the model and logging
+    if iter_num != 0 and iter_num % sample_interval == 0 and master_process:
+        model.eval()  # Switch to inference mode
+        with torch.no_grad():
+            # Insert your sampling logic here
+            tokens = enc.encode("There was a time, when ")
+            sampling_batch_size = batch_size
+            tokens = torch.tensor(tokens, dtype=torch.long)
+            tokens = tokens.unsqueeze(0).repeat(sampling_batch_size, 1)
+            x = tokens.to(device)
+
+            max_length = 100
+            torch.manual_seed(1337)
+            
+            # Generate the text sequence by sampling
+            while x.size(1) < max_length:
+                logits, _ = model(x)  # Only logits are needed for sampling
+                logits = logits[:, -1, :]  # take logits at the last position
+                probs = F.softmax(logits, dim=-1)  # get probabilities
+                topk_probs, topk_indices = torch.topk(probs, 10, dim=-1)  # top-k sampling
+                ix = torch.multinomial(topk_probs, 1)  # select a token
+                xcol = torch.gather(topk_indices, -1, ix)  # gather corresponding indices
+                x = torch.cat((x, xcol), dim=1)  # append token to sequence
+
+            # Decode the generated text
+            try:
+                generated_texts = [enc.decode(x[i, :max_length].tolist()) for i in range(sampling_batch_size)]
+            except Exception as e:
+                print(f"Error during decoding: {e}")
+                print(f"Token indices: {x.tolist()}")
+                raise
+
+            # Print and log the generated text
+            print("🤖 Generated texts:")
+            for decoded in generated_texts:
+                print(decoded)
+
+            # Log all generated samples together in TensorBoard
+            if tensorboard_log:
+                writer.add_text('Generated Text', "\n\n".join(generated_texts), iter_num)
+
+        model.train()  # Switch back to training mode
+
+
+    if iter_num % log_interval == 0 and master_process and grad_clip != 0.0:
+        writer.add_scalar('Gradient Norm', norm, iter_num)
+
     # timing and logging
     t1 = time.time()
     dt = t1 - t0
     t0 = t1
+
     if iter_num % log_interval == 0 and master_process:
         # get loss as float. note: this is a CPU-GPU sync point
         # scale up to undo the division above, approximating the true total loss (exact would have been a sum)
@@ -348,6 +400,7 @@ while True:
             mfu = raw_model.estimate_mfu(batch_size * gradient_accumulation_steps, dt)
             running_mfu = mfu if running_mfu == -1.0 else 0.9*running_mfu + 0.1*mfu
         print(f"iter {iter_num}: loss {lossf:.4f}, time {dt*1000:.2f}ms, mfu {running_mfu*100:.2f}%")
+    
     iter_num += 1
     local_iter_num += 1
 
