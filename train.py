@@ -28,6 +28,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import init_process_group, destroy_process_group
 
 from model_hyperbolic import GPTConfig, GPT
+from torch.utils.tensorboard import SummaryWriter
 
 gpu_id='0'
 os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
@@ -37,7 +38,7 @@ mode='original'
 # -----------------------------------------------------------------------------
 # default config values designed to train a gpt2 (124M) on OpenWebText
 # I/O
-out_dir = 'out'
+out_dir = '/raid/out'
 eval_interval = 200
 log_interval = 10
 eval_iters = 200
@@ -48,7 +49,6 @@ init_from = 'scratch' # 'scratch' or 'resume' or 'gpt2*'
 tensorboard_log = False # disabled by default
 wandb_log = False
 tensorboard_project = 'tinystories'
-tensorboard_run_name = 'run_' + str(f"{time.time():.0f}")# 'run' + str(time.time())
 # data
 dataset = 'tinystories'
 gradient_accumulation_steps = 2 # used to simulate larger batch sizes
@@ -118,7 +118,7 @@ ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torc
 ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
 
 # poor man's data loader
-data_dir = os.path.join('data', dataset)
+data_dir = os.path.join('/raid/data', dataset)
 def get_batch(split):
     # We recreate np.memmap every batch to avoid a memory leak, as per
     # https://stackoverflow.com/questions/45132940/numpy-memmap-memory-usage-want-to-iterate-once/61472122#61472122
@@ -165,7 +165,7 @@ if init_from == 'scratch':
 elif init_from == 'resume':
     print(f"Resuming training from {out_dir}")
     # resume training from a checkpoint.
-    ckpt_path = os.path.join(out_dir, 'ckpt.pt')
+    ckpt_path = os.path.join(out_dir, 'ckpt_'+str(mode)+'.pt')
     checkpoint = torch.load(ckpt_path, map_location=device)
     checkpoint_model_args = checkpoint['model_args']
     # force these config attributes to be equal otherwise we can't even resume training
@@ -256,12 +256,11 @@ def make_run_name(hyperparams: dict) -> str:
 
 if tensorboard_log and master_process:
     log_dir = make_run_name(model_args)
-    from torch.utils.tensorboard import SummaryWriter
-    writer = SummaryWriter(log_dir=f"runs/{log_dir}") #wandb.init(project=wandb_project, name=wandb_run_name, config=config)
+    writer = SummaryWriter(log_dir=f"/raid/runs/{log_dir}") #wandb.init(project=wandb_project, name=wandb_run_name, config=config)
 
-if wandb_log and master_process:
-    import wandb
-    wandb.init(project=tensorboard_project, name=make_run_name(model_args), config=config)
+# if wandb_log and master_process:
+#     import wandb
+#     wandb.init(project=tensorboard_project, name=make_run_name(model_args), config=config)
 
 # training loop
 X, Y = get_batch('train') # fetch the very first batch
@@ -285,13 +284,13 @@ while True:
             writer.add_scalar("val/loss", losses['val'], iter_num)
             writer.add_scalar("learning_rate", lr, iter_num)
 
-        if wandb_log:
-            wandb.log({
-                "iter": iter_num,
-                "train/loss_eval": losses['train'],
-                "val/loss_eval": losses['val'],
-                "lr": lr,
-            })
+        # if wandb_log:
+        #     wandb.log({
+        #         "iter": iter_num,
+        #         "train/loss_eval": losses['train'],
+        #         "val/loss_eval": losses['val'],
+        #         "lr": lr,
+        #     })
             
         if losses['val'] < best_val_loss or always_save_checkpoint:
             best_val_loss = losses['val']
