@@ -32,8 +32,7 @@ from model_hyperbolic import GPTConfig, GPT
 from torch.utils.tensorboard import SummaryWriter
 import tiktoken
 
-gpu_id='0'
-os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
+gpu_id='7'
 
 mode='original'
 
@@ -75,17 +74,21 @@ decay_lr = True # whether to decay the learning rate
 warmup_iters = 100 # how many steps to warm up for
 lr_decay_iters = 6000 # should be ~= max_iters per Chinchilla
 min_lr = 6e-5 # minimum learning rate, should be ~= learning_rate/10 per Chinchilla
+
+# -----------------------------------------------------------------------------
+config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
+exec(open('configurator.py').read()) # overrides from command line or config file
+config = {k: globals()[k] for k in config_keys} # will be useful for logging
+# -----------------------------------------------------------------------------
+print("GPU ID: ", gpu_id)
+os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
+
 # DDP settings
 backend = 'nccl' # 'nccl', 'gloo', etc.
 # system
 device = 'cuda' # examples: 'cpu', 'cuda', 'cuda:0', 'cuda:1' etc., or try 'mps' on macbooks
 dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else 'float16' # 'float32', 'bfloat16', or 'float16', the latter will auto implement a GradScaler
 compile = False # use PyTorch 2.0 to compile the model to be faster
-# -----------------------------------------------------------------------------
-config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
-exec(open('configurator.py').read()) # overrides from command line or config file
-config = {k: globals()[k] for k in config_keys} # will be useful for logging
-# -----------------------------------------------------------------------------
 
 # various inits, derived attributes, I/O setup
 ddp = int(os.environ.get('RANK', -1)) != -1 # is this a ddp run?
