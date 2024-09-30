@@ -18,6 +18,7 @@ $ torchrun --nproc_per_node=8 --nnodes=2 --node_rank=1 --master_addr=123.456.123
 
 import os
 import time
+from datetime import datetime
 import math
 import pickle
 from contextlib import nullcontext
@@ -258,11 +259,25 @@ def get_lr(it):
 # logging
 
 def make_run_name(hyperparams: dict) -> str:
-        return "_".join(f"{key}_{value}" for key, value in hyperparams.items())
+    order = ['mode',
+            'n_layer', 'n_head', 'n_embd', 
+            'learning_rate', 'min_lr', 'lr_decay_iters', 
+            'batch_size', 'gradient_accumulation_steps']
+    
+    name = []
+    for key in order:
+        if key in hyperparams:
+            name.append(f"{key}_{hyperparams[key]}")
+    
+    timestamp = datetime.now().strftime("%m.%d-%H.%M")
+    name.append(timestamp)
+    
+    return "_".join(name)
+
     
 
 if tensorboard_log and master_process:
-    log_dir = make_run_name(model_args)
+    log_dir = make_run_name(config)
     writer = SummaryWriter(log_dir=f"/raid/runs/{log_dir}") #wandb.init(project=wandb_project, name=wandb_run_name, config=config)
 
 # if wandb_log and master_process:
