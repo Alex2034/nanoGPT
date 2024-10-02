@@ -56,10 +56,10 @@ class CausalSelfAttention(nn.Module):
                 self.register_buffer('c', torch.tensor(float(curvature)))
             elif curvature == 'learn':
                 # If curvature is 'learn', initialize self.c as a learnable parameter with value 1.0
-                self.c = nn.Parameter(torch.tensor(1.0))
+                self.c = nn.Parameter(torch.ones(1, self.n_head, 1, 1, device=self.c_attn.weight.device))
             elif curvature == 'learn_exp':
                 # If curvature is 'learn_exp', initialize self.c as exp(x) where x ~ N(0,1)
-                x = torch.randn(1)
+                x = torch.randn(1, config.n_head, 1, 1, device=self.c_attn.weight.device)/config.sigma
                 c_init = torch.exp(x)
                 self.c = nn.Parameter(c_init)
             else:
@@ -100,7 +100,7 @@ class CausalSelfAttention(nn.Module):
 
         elif self.mode == 'hyperbolic': 
             if not self.mode_set:
-                print('Entered Hyperbolic mode', flush = True)
+                # print('Entered Hyperbolic mode', flush = True)
                 print('Curvature = ', self.c)
                 self.mode_set = True
 
@@ -163,6 +163,7 @@ class GPTConfig:
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
     mode: str = 'original'
     curvature: float = 1.0
+    sigma: float = 1.0
 
 class GPT(nn.Module):
 

@@ -37,6 +37,7 @@ gpu_id='7'
 
 mode='original'
 curvature=1.0
+sigma=1.0
 
 # -----------------------------------------------------------------------------
 # default config values designed to train a gpt2 (124M) on OpenWebText
@@ -161,7 +162,8 @@ if os.path.exists(meta_path):
 
 # model init
 model_args = dict(n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=block_size,
-                  bias=bias, vocab_size=None, dropout=dropout, mode=mode, curvature=curvature) # start with model_args from command line
+                  bias=bias, vocab_size=None, dropout=dropout, 
+                  mode=mode, curvature=curvature, sigma=sigma) # start with model_args from command line
 
 if init_from == 'scratch':
     # init a new model from scratch
