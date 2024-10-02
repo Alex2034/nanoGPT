@@ -36,6 +36,7 @@ import tiktoken
 gpu_id='7'
 
 mode='original'
+curvature=1.0
 
 # -----------------------------------------------------------------------------
 # default config values designed to train a gpt2 (124M) on OpenWebText
@@ -159,7 +160,7 @@ if os.path.exists(meta_path):
 
 # model init
 model_args = dict(n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=block_size,
-                  bias=bias, vocab_size=None, dropout=dropout, mode=mode) # start with model_args from command line
+                  bias=bias, vocab_size=None, dropout=dropout, mode=mode, curvature=curvature) # start with model_args from command line
 
 if init_from == 'scratch':
     # init a new model from scratch
@@ -218,7 +219,7 @@ checkpoint = None # free up memory
 
 # compile the model
 if compile:
-    print("compiling the model... (takes a ~minute)")
+    print("compiling the model")
     unoptimized_model = model
     model = torch.compile(model) # requires PyTorch 2.0
 
@@ -242,7 +243,21 @@ def estimate_loss():
     model.train()
     return out
 
-# learning rate decay scheduler (cosine with warmup)
+# EXPONENTIAL learning rate decay scheduler 
+# def get_lr(it):
+#     # 1) linear warmup for warmup_iters steps
+#     if it < warmup_iters:
+#         return learning_rate * it / warmup_iters
+#     # 2) if it > lr_decay_iters, return min learning rate
+#     if it > lr_decay_iters:
+#         return min_lr
+#     # 3) in between, use cosine decay down to min learning rate
+#     decay_ratio = (it - warmup_iters) / (lr_decay_iters - warmup_iters)
+#     assert 0 <= decay_ratio <= 1
+#     coeff = (math.exp(-math.pi * decay_ratio) - math.exp(-math.pi))/(1 - math.exp(-math.pi))  # coeff ranges 0..1
+#     return min_lr + coeff * (learning_rate - min_lr)
+
+# COSINE learning rate decay scheduler (cosine with warmup)
 def get_lr(it):
     # 1) linear warmup for warmup_iters steps
     if it < warmup_iters:

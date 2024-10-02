@@ -49,10 +49,25 @@ class CausalSelfAttention(nn.Module):
 #         self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention')
         
         if self.mode == 'hyperbolic':
-            self.c = nn.Parameter(torch.tensor(1.))
-            # self.p = nn.Parameter(torch.tensor(2.))
-            self.p = torch.tensor(2.)
-            self.eps = torch.tensor(1e-3)
+            # Handle the curvature attribute based on its type
+            curvature = config.curvature
+            if isinstance(curvature, (int, float)):
+                # If curvature is a number, set self.c as a constant tensor
+                self.register_buffer('c', torch.tensor(float(curvature)))
+            elif curvature == 'learn':
+                # If curvature is 'learn', initialize self.c as a learnable parameter with value 1.0
+                self.c = nn.Parameter(torch.tensor(1.0))
+            elif curvature == 'learn_exp':
+                # If curvature is 'learn_exp', initialize self.c as exp(x) where x ~ N(0,1)
+                x = torch.randn(1)
+                c_init = torch.exp(x)
+                self.c = nn.Parameter(c_init)
+            else:
+                raise ValueError(f"Invalid curvature value: {curvature}")
+            
+            # Register 'p' and 'eps' as buffers if they are fixed constants
+            self.register_buffer('p', torch.tensor(2.0))
+            self.register_buffer('eps', torch.tensor(1e-3))
         
 #         if not self.flash:
 #             print("WARNING: using slow attention. Flash Attention requires PyTorch >= 2.0")
@@ -83,9 +98,10 @@ class CausalSelfAttention(nn.Module):
             att = self.attn_dropout(att)
             y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
         elif self.mode == 'hyperbolic': 
-#             if not self.mode_set:
-#                 print('Entered Hyperbolic mode', flush = True)
-#                 self.mode_set = True
+            if not self.mode_set:
+                print('Entered Hyperbolic mode', flush = True)
+                print('Curva = ', self.c)
+                self.mode_set = True
             pq = pmath.expmap0(q, c=self.c)
             pk = pmath.expmap0(k, c=self.c)
             wei = pmath.dist_matrix(pq, pk, c=self.c)**self.p
@@ -142,6 +158,7 @@ class GPTConfig:
     dropout: float = 0.0
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
     mode: str = 'original'
+    curvature: float = 1.0
 
 class GPT(nn.Module):
 
