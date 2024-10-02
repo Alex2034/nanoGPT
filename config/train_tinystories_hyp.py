@@ -1,13 +1,14 @@
 # train a miniature character-level shakespeare model
 # good for debugging and playing on macbooks and such
 
-gpu_id='4'
+gpu_id='6'
 # os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
 
 mode='hyperbolic'
-curvature='learn_exp'
+cmode='learned'
+sigma = 0.0
+init_curvature = 1e-2
 
-sigma = 10.0
 learning_rate = 3e-4 
 max_iters = 40000
 lr_decay_iters = 40000 # make equal to max_iters usually

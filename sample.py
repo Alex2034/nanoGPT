@@ -6,7 +6,7 @@ import pickle
 from contextlib import nullcontext
 import torch
 import tiktoken
-from model_hyperbolic import GPTConfig, GPT
+from nanoGPT.model_poincare import GPTConfig, GPT
 
 # -----------------------------------------------------------------------------
 mode='original'

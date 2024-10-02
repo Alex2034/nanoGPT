@@ -36,7 +36,8 @@ import tiktoken
 gpu_id='7'
 
 mode='original'
-curvature=1.0
+cmode='fixed'
+init_curvature=1.0
 sigma=1.0
 
 # -----------------------------------------------------------------------------
@@ -93,6 +94,38 @@ backend = 'nccl' # 'nccl', 'gloo', etc.
 device = 'cuda' # examples: 'cpu', 'cuda', 'cuda:0', 'cuda:1' etc., or try 'mps' on macbooks
 dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else 'float16' # 'float32', 'bfloat16', or 'float16', the latter will auto implement a GradScaler
 compile = False # use PyTorch 2.0 to compile the model to be faster
+
+
+def make_run_name(hyperparams: dict) -> str:
+        
+    if mode=='original':
+        order=['mode', 'n_layer', 'n_head', 'n_embd', 
+                'learning_rate', 'min_lr', 'lr_decay_iters', 
+                'batch_size', 'gradient_accumulation_steps']
+    else:
+        if cmode=='fixed':
+            order = ['cmode', 'init_curvature',
+                'n_layer', 'n_head', 'n_embd', 
+                'learning_rate', 'min_lr', 'lr_decay_iters', 
+                'batch_size', 'gradient_accumulation_steps']
+        elif cmode=='learned':
+            order = ['cmode', 'init_curvature',
+                'n_layer', 'n_head', 'n_embd', 
+                'learning_rate', 'min_lr', 'lr_decay_iters', 
+                'batch_size', 'gradient_accumulation_steps']
+        else:
+            raise ValueError(f"Invalid curvature learning mode: {cmode}")
+    
+    name = []
+    for key in order:
+        if key in hyperparams:
+            name.append(f"{key}_{hyperparams[key]}")
+    
+    timestamp = datetime.now().strftime("%H.%M")
+    name.append(timestamp)
+    
+    return "_".join(name)
+
 
 # various inits, derived attributes, I/O setup
 ddp = int(os.environ.get('RANK', -1)) != -1 # is this a ddp run?
@@ -163,7 +196,7 @@ if os.path.exists(meta_path):
 # model init
 model_args = dict(n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=block_size,
                   bias=bias, vocab_size=None, dropout=dropout, 
-                  mode=mode, curvature=curvature, sigma=sigma) # start with model_args from command line
+                  mode=mode, cmode=cmode, init_curvature=init_curvature, sigma=sigma) # start with model_args from command line
 
 if init_from == 'scratch':
     # init a new model from scratch
@@ -246,21 +279,7 @@ def estimate_loss():
     model.train()
     return out
 
-# EXPONENTIAL learning rate decay scheduler 
-# def get_lr(it):
-#     # 1) linear warmup for warmup_iters steps
-#     if it < warmup_iters:
-#         return learning_rate * it / warmup_iters
-#     # 2) if it > lr_decay_iters, return min learning rate
-#     if it > lr_decay_iters:
-#         return min_lr
-#     # 3) in between, use cosine decay down to min learning rate
-#     decay_ratio = (it - warmup_iters) / (lr_decay_iters - warmup_iters)
-#     assert 0 <= decay_ratio <= 1
-#     coeff = (math.exp(-math.pi * decay_ratio) - math.exp(-math.pi))/(1 - math.exp(-math.pi))  # coeff ranges 0..1
-#     return min_lr + coeff * (learning_rate - min_lr)
 
-# COSINE learning rate decay scheduler (cosine with warmup)
 def get_lr(it, schedule='cos'):
     # 1) linear warmup for warmup_iters steps
     if it < warmup_iters:
@@ -282,27 +301,11 @@ def get_lr(it, schedule='cos'):
 
 # logging
 
-def make_run_name(hyperparams: dict) -> str:
-    order = ['mode', 'curvature',
-            'n_layer', 'n_head', 'n_embd', 
-            'learning_rate', 'min_lr', 'lr_decay_iters', 
-            'batch_size', 'gradient_accumulation_steps']
-    
-    name = ['lorentz']
-    for key in order:
-        if key in hyperparams:
-            name.append(f"{key}_{hyperparams[key]}")
-    
-    timestamp = datetime.now().strftime("%m.%d-%H.%M")
-    name.append(timestamp)
-    
-    return "_".join(name)
-
-    
 
 if tensorboard_log and master_process:
     log_dir = make_run_name(config)
-    writer = SummaryWriter(log_dir=f"/raid/runs/{log_dir}") #wandb.init(project=wandb_project, name=wandb_run_name, config=config)
+    day_dir = datetime.now().strftime("%m.%d")
+    writer = SummaryWriter(log_dir=f"/raid/runs/{day_dir}/{log_dir}") #wandb.init(project=wandb_project, name=wandb_run_name, config=config)
 
 # if wandb_log and master_process:
 #     import wandb

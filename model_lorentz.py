@@ -45,25 +45,18 @@ class CausalSelfAttention(nn.Module):
         self.mode = config.mode
         self.mode_set = False
         
-        # flash attention make GPU go brrrrr but support is only in PyTorch >= 2.0
-#         self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention')
-        
         if self.mode == 'hyperbolic':
-            # Handle the curvature attribute based on its type
-            curvature = config.curvature
-            if isinstance(curvature, (int, float)):
-                # If curvature is a number, set self.c as a constant tensor
-                self.register_buffer('c', torch.tensor(float(curvature)))
-            elif curvature == 'learn':
-                # If curvature is 'learn', initialize self.c as a learnable parameter with value 1.0
-                self.c = nn.Parameter(torch.ones(1, self.n_head, 1, 1, device=self.c_attn.weight.device))
-            elif curvature == 'learn_exp':
-                # If curvature is 'learn_exp', initialize self.c as exp(x) where x ~ N(0,1)
-                x = torch.randn(1, config.n_head, 1, 1, device=self.c_attn.weight.device)/config.sigma
-                c_init = torch.exp(x)
-                self.c = nn.Parameter(c_init)
+            curvature_mode = config.cmode
+            if curvature_mode == 'fixed':
+                # If curvature is fixed, set self.c as a constant tensor
+                self.register_buffer('c', torch.tensor(float(config.init_curvature)))
+            elif curvature_mode == 'learned':
+                # If curvature is learned, initialize self.c as init_curvature * exp(x) where x ~ N(0, sigma^2)
+                x = torch.randn(1, config.n_head, 1, 1, device=self.c_attn.weight.device) * config.sigma
+                init_c = torch.exp(x) * config.init_curvature
+                self.c = nn.Parameter(init_c)
             else:
-                raise ValueError(f"Invalid curvature value: {curvature}")
+                raise ValueError(f"Invalid curvature learning mode: {curvature_mode}")
             
             # Register 'p' and 'eps' as buffers if they are fixed constants
             self.register_buffer('p', torch.tensor(2.0))
@@ -162,8 +155,9 @@ class GPTConfig:
     dropout: float = 0.0
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
     mode: str = 'original'
-    curvature: float = 1.0
+    cmode: str = 'fixed'
     sigma: float = 1.0
+    init_curvature: float = 1.0
 
 class GPT(nn.Module):
 
