@@ -1,7 +1,7 @@
 # train a miniature character-level shakespeare model
 # good for debugging and playing on macbooks and such
 
-gpu_id='7'
+gpu_id='3'
 # os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
 
 compile = False
@@ -12,7 +12,7 @@ out_dir = '/raid/out-tinystories'
 eval_interval = 200 # keep frequent because we'll overfit
 eval_iters = 10
 log_interval = 20
-sample_interval = 2000
+sample_interval = 5000
 
 # we expect to overfit on this small dataset, so only save when val improves
 always_save_checkpoint = False

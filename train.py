@@ -305,7 +305,7 @@ def get_lr(it, schedule='cos'):
 if tensorboard_log and master_process:
     log_dir = make_run_name(config)
     day_dir = datetime.now().strftime("%m.%d")
-    writer = SummaryWriter(log_dir=f"/raid/runs/{day_dir}/{log_dir}") #wandb.init(project=wandb_project, name=wandb_run_name, config=config)
+    writer = SummaryWriter(log_dir=f"/raid/runs_train/{day_dir}/{log_dir}") #wandb.init(project=wandb_project, name=wandb_run_name, config=config)
 
 # if wandb_log and master_process:
 #     import wandb
@@ -353,7 +353,7 @@ while True:
                     'config': config,
                 }
                 print(f"saving checkpoint to {out_dir}")
-                torch.save(checkpoint, os.path.join(out_dir, 'ckpt_'+str(mode)+'.pt'))
+                torch.save(checkpoint, os.path.join(out_dir, 'ckpt_'+log_dir+'.pt'))
 
     if iter_num == 0 and eval_only:
         break
