@@ -8,7 +8,7 @@ https://github.com/huggingface/transformers/blob/main/src/transformers/models/gp
 """
 
 import math
-import pmath
+import lmath
 import inspect
 from dataclasses import dataclass
 
@@ -97,21 +97,25 @@ class CausalSelfAttention(nn.Module):
             att = F.softmax(att, dim=-1)
             att = self.attn_dropout(att)
             y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
+
         elif self.mode == 'hyperbolic': 
             if not self.mode_set:
                 print('Entered Hyperbolic mode', flush = True)
                 print('Curvature = ', self.c)
                 self.mode_set = True
-            pq = pmath.expmap0(q, c=self.c)
-            pk = pmath.expmap0(k, c=self.c)
-            wei = pmath.dist_matrix(pq, pk, c=self.c)**self.p
-            wei = 1 / (self.eps + wei)
-            wei = wei.masked_fill(self.bias[:,:,:T,:T] == 0, 0.) # (B, T, T)
+
+            lq = lmath.project(q, k=self.c, dim=-1).unsqueeze(-2)
+            lk = lmath.project(k, k=self.c, dim=-1).unsqueeze(-3)
+
+            dist = lmath.dist(lq, lk, k=self.c, dim=-1)
+
+            wei = 1 / (self.eps + dist**self.p)
+            wei = wei.masked_fill(self.bias[:,:,:T,:T] == 0, 0.) 
             wei = wei / wei.sum(dim = -1, keepdim = True)
             # wei = F.softmax(wei, dim=-1) # (B, T, T)
             wei = self.attn_dropout(wei)
-#             v = self.value(x) # (B,T,C)
             y = wei @ v
+            
         y = y.transpose(1, 2).contiguous().view(B, T, C) # re-assemble all head outputs side by side
         
         # output projection

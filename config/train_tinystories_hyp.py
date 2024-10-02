@@ -1,18 +1,19 @@
 # train a miniature character-level shakespeare model
 # good for debugging and playing on macbooks and such
 
-gpu_id='7'
+gpu_id='6'
 # os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
 
 mode='hyperbolic'
-curvature=1e-5
+curvature=1.0
 
 learning_rate = 3e-4 
 max_iters = 40000
 lr_decay_iters = 40000 # make equal to max_iters usually
 min_lr = 3e-5 # learning_rate / 10 usually
-beta2 = 0.99 # make a bit bigger because number of tokens per iter is small
+schedule = 'exp'
 
+beta2 = 0.99 # make a bit bigger because number of tokens per iter is small
 warmup_iters = 100 # not super necessary potentially
 
 compile = True

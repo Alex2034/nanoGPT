@@ -29,7 +29,7 @@ from torch.nn import functional as F
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import init_process_group, destroy_process_group
 
-from model_hyperbolic import GPTConfig, GPT
+from model_lorentz import GPTConfig, GPT
 from torch.utils.tensorboard import SummaryWriter
 import tiktoken
 
@@ -76,6 +76,7 @@ decay_lr = True # whether to decay the learning rate
 warmup_iters = 100 # how many steps to warm up for
 lr_decay_iters = 6000 # should be ~= max_iters per Chinchilla
 min_lr = 6e-5 # minimum learning rate, should be ~= learning_rate/10 per Chinchilla
+schedule = 'cos'
 
 # -----------------------------------------------------------------------------
 config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
@@ -258,7 +259,7 @@ def estimate_loss():
 #     return min_lr + coeff * (learning_rate - min_lr)
 
 # COSINE learning rate decay scheduler (cosine with warmup)
-def get_lr(it):
+def get_lr(it, schedule='cos'):
     # 1) linear warmup for warmup_iters steps
     if it < warmup_iters:
         return learning_rate * it / warmup_iters
@@ -268,18 +269,24 @@ def get_lr(it):
     # 3) in between, use cosine decay down to min learning rate
     decay_ratio = (it - warmup_iters) / (lr_decay_iters - warmup_iters)
     assert 0 <= decay_ratio <= 1
-    coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio)) # coeff ranges 0..1
-    return min_lr + coeff * (learning_rate - min_lr)
+    
+    if schedule=='cos':
+        coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio)) # coeff ranges 0..1
+        return min_lr + coeff * (learning_rate - min_lr)
+
+    elif schedule=='exp':
+        return learning_rate * (min_lr / learning_rate) ** decay_ratio
+
 
 # logging
 
 def make_run_name(hyperparams: dict) -> str:
-    order = ['mode',
+    order = ['mode', 'curvature',
             'n_layer', 'n_head', 'n_embd', 
             'learning_rate', 'min_lr', 'lr_decay_iters', 
             'batch_size', 'gradient_accumulation_steps']
     
-    name = []
+    name = ['lorentz']
     for key in order:
         if key in hyperparams:
             name.append(f"{key}_{hyperparams[key]}")
@@ -308,7 +315,7 @@ running_mfu = -1.0
 while True:
 
     # determine and set the learning rate for this iteration
-    lr = get_lr(iter_num) if decay_lr else learning_rate
+    lr = get_lr(iter_num, schedule=schedule) if decay_lr else learning_rate
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 
