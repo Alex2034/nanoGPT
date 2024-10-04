@@ -390,7 +390,7 @@ while True:
         model.eval()  # Switch to inference mode
         with torch.no_grad():
             # Insert your sampling logic here
-            tokens = enc.encode("There was a time, when ")
+            tokens = enc.encode("Once upon a time,")
             sampling_batch_size = batch_size
             tokens = torch.tensor(tokens, dtype=torch.long)
             tokens = tokens.unsqueeze(0).repeat(sampling_batch_size, 1)

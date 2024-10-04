@@ -1,7 +1,7 @@
 # train a miniature character-level shakespeare model
 # good for debugging and playing on macbooks and such
 
-gpu_id='3'
+gpu_id='7'
 # os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
 
 compile = False
