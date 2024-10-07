@@ -43,7 +43,7 @@ class CausalSelfAttention(nn.Module):
         self.n_embd = config.n_embd
         self.dropout = config.dropout
         self.mode = config.mode
-        self.mode_set = False
+        # self.mode_set = False
         
         if self.mode == 'hyperbolic':
             curvature_mode = config.cmode
@@ -92,10 +92,10 @@ class CausalSelfAttention(nn.Module):
             y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
 
         elif self.mode == 'hyperbolic': 
-            if not self.mode_set:
-                # print('Entered Hyperbolic mode', flush = True)
-                print('Curvature = ', self.c)
-                self.mode_set = True
+            # if not self.mode_set:
+            #     # print('Entered Hyperbolic mode', flush = True)
+            #     print('Curvature = ', self.c)
+            #     self.mode_set = True
 
             lq = lmath.project(q, k=self.c, dim=-1).unsqueeze(-2)
             lk = lmath.project(k, k=self.c, dim=-1).unsqueeze(-3)

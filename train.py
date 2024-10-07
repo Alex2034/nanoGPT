@@ -47,6 +47,7 @@ out_dir = '/raid/out'
 eval_interval = 200
 log_interval = 100
 sample_interval = 1000
+ckpt_interval = 10_000_000
 eval_iters = 10
 eval_only = False # if True, script exits right after the first eval
 always_save_checkpoint = True # if True, always save a checkpoint after each eval
@@ -67,7 +68,7 @@ n_embd = 192
 dropout = 0.0 # for pretraining 0 is good, for finetuning try 0.1+
 bias = False # do we use bias inside LayerNorm and Linear layers?
 # adamw optimizer
-learning_rate = 6e-4 # max learning rate
+max_lr = 6e-4 # max learning rate
 max_iters = 6000 # total number of training iterations
 weight_decay = 1e-1
 beta1 = 0.9
@@ -77,58 +78,28 @@ grad_clip = 1.0 # clip gradients at this value, or disable if == 0.0
 decay_lr = True # whether to decay the learning rate
 warmup_iters = 100 # how many steps to warm up for
 lr_decay_iters = 6000 # should be ~= max_iters per Chinchilla
-min_lr = 6e-5 # minimum learning rate, should be ~= learning_rate/10 per Chinchilla
+min_lr = 6e-5 # minimum learning rate, should be ~= max_lr/10 per Chinchilla
 schedule = 'cos'
+compile = False # use PyTorch 2.0 to compile the model to be faster
 
 # -----------------------------------------------------------------------------
 config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
 exec(open('configurator.py').read()) # overrides from command line or config file
 config = {k: globals()[k] for k in config_keys} # will be useful for logging
 # -----------------------------------------------------------------------------
-print("GPU ID: ", gpu_id)
+# print("GPU ID: ", gpu_id)
 os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
 
 # DDP settings
 backend = 'nccl' # 'nccl', 'gloo', etc.
 # system
-device = 'cuda' # examples: 'cpu', 'cuda', 'cuda:0', 'cuda:1' etc., or try 'mps' on macbooks
+# device = 'cuda' # examples: 'cpu', 'cuda', 'cuda:0', 'cuda:1' etc., or try 'mps' on macbooks
+
 dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else 'float16' # 'float32', 'bfloat16', or 'float16', the latter will auto implement a GradScaler
-compile = False # use PyTorch 2.0 to compile the model to be faster
-
-
-def make_run_name(hyperparams: dict) -> str:
-        
-    if mode=='original':
-        order=['mode', 'n_layer', 'n_head', 'n_embd', 
-                'learning_rate', 'min_lr', 'lr_decay_iters', 
-                'batch_size', 'gradient_accumulation_steps']
-    else:
-        if cmode=='fixed':
-            order = ['cmode', 'init_curvature',
-                'n_layer', 'n_head', 'n_embd', 
-                'learning_rate', 'min_lr', 'lr_decay_iters', 
-                'batch_size', 'gradient_accumulation_steps']
-        elif cmode=='learned':
-            order = ['cmode', 'init_curvature',
-                'n_layer', 'n_head', 'n_embd', 
-                'learning_rate', 'min_lr', 'lr_decay_iters', 
-                'batch_size', 'gradient_accumulation_steps']
-        else:
-            raise ValueError(f"Invalid curvature learning mode: {cmode}")
-    
-    name = []
-    for key in order:
-        if key in hyperparams:
-            name.append(f"{key}_{hyperparams[key]}")
-    
-    timestamp = datetime.now().strftime("%H.%M")
-    name.append(timestamp)
-    
-    return "_".join(name)
-
 
 # various inits, derived attributes, I/O setup
-ddp = int(os.environ.get('RANK', -1)) != -1 # is this a ddp run?
+ddp = int(os.environ.get('RANK', -1)) != -1
+print('is this a ddp run?', ddp)
 if ddp:
     init_process_group(backend=backend)
     ddp_rank = int(os.environ['RANK'])
@@ -140,15 +111,17 @@ if ddp:
     seed_offset = ddp_rank # each process gets a different seed
     # world_size number of processes will be training simultaneously, so we can scale
     # down the desired gradient accumulation iterations per process proportionally
-    assert gradient_accumulation_steps % ddp_world_size == 0
-    gradient_accumulation_steps //= ddp_world_size
+    # assert gradient_accumulation_steps % ddp_world_size == 0
+    # gradient_accumulation_steps //= ddp_world_size
 else:
     # if not ddp, we are running on a single gpu, and one process
     master_process = True
     seed_offset = 0
     ddp_world_size = 1
+    device='cuda'
+
 tokens_per_iter = gradient_accumulation_steps * ddp_world_size * batch_size * block_size
-print(f"tokens per iteration will be: {tokens_per_iter:,}")
+print(f"tokens per iteration will be: {tokens_per_iter:,}, world_size = {ddp_world_size:,}")
 
 if master_process:
     os.makedirs(out_dir, exist_ok=True)
@@ -162,6 +135,7 @@ ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=
 
 # poor man's data loader
 data_dir = os.path.join('/raid/data', dataset)
+
 def get_batch(split):
     # We recreate np.memmap every batch to avoid a memory leak, as per
     # https://stackoverflow.com/questions/45132940/numpy-memmap-memory-usage-want-to-iterate-once/61472122#61472122
@@ -178,6 +152,36 @@ def get_batch(split):
     else:
         x, y = x.to(device), y.to(device)
     return x, y
+
+def make_run_name(hyperparams: dict) -> str:
+        
+    if mode=='original':
+        order=['mode', 'n_layer', 'n_head', 'n_embd', 
+                'max_lr', 'min_lr', 'lr_decay_iters', 
+                'batch_size', 'gradient_accumulation_steps']
+    else:
+        if cmode=='fixed':
+            order = ['cmode', 'init_curvature',
+                'n_layer', 'n_head', 'n_embd', 
+                'max_lr', 'min_lr', 'lr_decay_iters', 
+                'batch_size', 'gradient_accumulation_steps']
+        elif cmode=='learned':
+            order = ['cmode', 'init_curvature',
+                'n_layer', 'n_head', 'n_embd', 
+                'max_lr', 'min_lr', 'lr_decay_iters', 
+                'batch_size', 'gradient_accumulation_steps']
+        else:
+            raise ValueError(f"Invalid curvature learning mode: {cmode}")
+    
+    name = []
+    for key in order:
+        if key in hyperparams:
+            name.append(f"{key}_{hyperparams[key]}")
+    
+    timestamp = datetime.now().strftime("%H.%M")
+    name.append(timestamp)
+    
+    return "_".join(name)
 
 # init these up here, can override if init_from='resume' (i.e. from a checkpoint)
 iter_num = 0
@@ -215,7 +219,7 @@ elif init_from == 'resume':
     checkpoint_model_args = checkpoint['model_args']
     # force these config attributes to be equal otherwise we can't even resume training
     # the rest of the attributes (e.g. dropout) can stay as desired from command line
-    for k in ['n_layer', 'n_head', 'n_embd', 'block_size', 'bias', 'vocab_size']:
+    for k in ['n_layer', 'n_head', 'n_embd', 'block_size', 'bias', 'vocab_size']: #TODO add hyperbolic
         model_args[k] = checkpoint_model_args[k]
     # create the model
     gptconf = GPTConfig(**model_args)
@@ -248,7 +252,8 @@ model.to(device)
 scaler = torch.cuda.amp.GradScaler(enabled=(dtype == 'float16'))
 
 # optimizer
-optimizer = model.configure_optimizers(weight_decay, learning_rate, (beta1, beta2), device_type)
+optimizer = model.configure_optimizers(weight_decay, max_lr, (beta1, beta2), device_type)
+
 if init_from == 'resume':
     optimizer.load_state_dict(checkpoint['optimizer'])
 checkpoint = None # free up memory
@@ -262,6 +267,7 @@ if compile:
 # wrap model into DDP container
 if ddp:
     model = DDP(model, device_ids=[ddp_local_rank])
+    print(f'wrapped into DDP, local rank = {ddp_local_rank}')
 
 # helps estimate an arbitrarily accurate loss over either split using many batches
 @torch.no_grad()
@@ -283,7 +289,7 @@ def estimate_loss():
 def get_lr(it, schedule='cos'):
     # 1) linear warmup for warmup_iters steps
     if it < warmup_iters:
-        return learning_rate * it / warmup_iters
+        return max_lr * it / warmup_iters
     # 2) if it > lr_decay_iters, return min learning rate
     if it > lr_decay_iters:
         return min_lr
@@ -293,10 +299,10 @@ def get_lr(it, schedule='cos'):
     
     if schedule=='cos':
         coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio)) # coeff ranges 0..1
-        return min_lr + coeff * (learning_rate - min_lr)
+        return min_lr + coeff * (max_lr - min_lr)
 
     elif schedule=='exp':
-        return learning_rate * (min_lr / learning_rate) ** decay_ratio
+        return max_lr * (min_lr / max_lr) ** decay_ratio
 
 
 # logging
@@ -320,7 +326,7 @@ running_mfu = -1.0
 while True:
 
     # determine and set the learning rate for this iteration
-    lr = get_lr(iter_num, schedule=schedule) if decay_lr else learning_rate
+    lr = get_lr(iter_num, schedule=schedule) if decay_lr else max_lr
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 
@@ -353,10 +359,24 @@ while True:
                     'config': config,
                 }
                 print(f"saving checkpoint to {out_dir}")
-                torch.save(checkpoint, os.path.join(out_dir, 'ckpt_'+log_dir+'.pt'))
+                torch.save(checkpoint, os.path.join(out_dir, 'bestval_ckpt_' + log_dir + '.pt'))
 
     if iter_num == 0 and eval_only:
         break
+
+    # checkpoint the evolution
+    if iter_num > 0 and iter_num % ckpt_interval == 0:
+        checkpoint = {
+            'model': raw_model.state_dict(),
+            'model_args': model_args,
+            'iter_num': iter_num,
+            'config': config,
+        }
+        evo_dir = os.path.join(out_dir, f'evo_ckpt_{log_dir}')
+        if master_process:
+            os.makedirs(evo_dir, exist_ok=True)
+        print(f"saving checkpoint to {evo_dir}")
+        torch.save(checkpoint, os.path.join(evo_dir, f'{iter_num//1e3:.0f}k.pt'))
 
     # forward backward update, with optional gradient accumulation to simulate larger batch size
     # and using the GradScaler if data type is float16
@@ -396,7 +416,7 @@ while True:
             tokens = tokens.unsqueeze(0).repeat(sampling_batch_size, 1)
             x = tokens.to(device)
 
-            max_length = 100
+            max_length = 300
             torch.manual_seed(1337)
             
             # Generate the text sequence by sampling
