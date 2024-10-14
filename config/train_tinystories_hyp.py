@@ -1,4 +1,4 @@
-gpu_id='6'
+gpu_id='5'
 # os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
 
 mode='hyperbolic'
@@ -6,7 +6,7 @@ cmode='learned'
 sigma = 0.1
 init_curvature = 1.
 
-learning_rate = 3e-4 
+learning_rate = 1e-3 
 max_iters = 100_000
 lr_decay_iters = 100_000 # make equal to max_iters usually
 min_lr = 1e-5 # learning_rate / 10 usually
