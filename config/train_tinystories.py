@@ -1,14 +1,15 @@
-# train a miniature character-level shakespeare model
-# good for debugging and playing on macbooks and such
-
-gpu_id='7'
+gpu_id='0'
 # os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
 
 compile = False
 
 mode='original'
 
-out_dir = '/raid/out-tinystories'
+dataset='shakespeare_char'
+tensorboard_project = 'shakespeare_char'
+out_dir = 'out-shakespeare_char'
+
+
 eval_interval = 200 # keep frequent because we'll overfit
 eval_iters = 10
 log_interval = 20
@@ -19,24 +20,21 @@ always_save_checkpoint = False
 
 wandb_log = False
 tensorboard_log = True 
-# wandb_project = 'shakespeare-char'
-# wandb_run_name = 'mini-gpt'
 
-dataset = 'tinystories'
-gradient_accumulation_steps = 2
-batch_size = 1
+gradient_accumulation_steps = 1
+batch_size = 100
 block_size = 1024 # context of up to 256 previous characters
 
 # baby GPT model :)
-n_layer = 12
-n_head = 12
+n_layer = 6
+n_head = 6
 n_embd = 72
 dropout = 0.2
 
-learning_rate = 3e-4 # with baby networks can afford to go a bit higher
-max_iters = 40000
-lr_decay_iters = 40000 # make equal to max_iters usually
-min_lr = 3e-5 # learning_rate / 10 usually
+learning_rate = 3e-3 # with baby networks can afford to go a bit higher
+max_iters = 4000
+lr_decay_iters = 4000 # make equal to max_iters usually
+min_lr = 3e-3 # learning_rate / 10 usually
 beta2 = 0.99 # make a bit bigger because number of tokens per iter is small
 
 warmup_iters = 10 # not super necessary potentially

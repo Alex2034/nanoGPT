@@ -33,7 +33,7 @@ from model_lorentz import GPTConfig, GPT
 from torch.utils.tensorboard import SummaryWriter
 import tiktoken
 
-gpu_id='7'
+gpu_id='0'
 
 mode='original'
 cmode='fixed'
@@ -43,7 +43,6 @@ sigma=1.0
 # -----------------------------------------------------------------------------
 # default config values designed to train a gpt2 (124M) on OpenWebText
 # I/O
-out_dir = '/raid/out'
 eval_interval = 200
 log_interval = 100
 sample_interval = 1000
@@ -55,9 +54,12 @@ init_from = 'scratch' # 'scratch' or 'resume' or 'gpt2*'
 # tensorboard logging
 tensorboard_log = False # disabled by default
 wandb_log = False
-tensorboard_project = 'tinystories'
-# data
+
 dataset = 'tinystories'
+tensorboard_project = 'tinystories'
+out_dir = 'out-tinystories'
+
+# data
 gradient_accumulation_steps = 2 # used to simulate larger batch sizes
 batch_size = 12 # if gradient_accumulation_steps > 1, this is the micro-batch size
 block_size = 256
@@ -134,7 +136,7 @@ ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torc
 ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
 
 # poor man's data loader
-data_dir = os.path.join('/raid/data', dataset)
+data_dir = os.path.join('data', dataset)
 
 def get_batch(split):
     # We recreate np.memmap every batch to avoid a memory leak, as per
@@ -311,7 +313,7 @@ def get_lr(it, schedule='cos'):
 if tensorboard_log and master_process:
     log_dir = make_run_name(config)
     day_dir = datetime.now().strftime("%m.%d")
-    writer = SummaryWriter(log_dir=f"/raid/runs_train/{day_dir}/{log_dir}") #wandb.init(project=wandb_project, name=wandb_run_name, config=config)
+    writer = SummaryWriter(log_dir=f"runs/{day_dir}/{log_dir}") #wandb.init(project=wandb_project, name=wandb_run_name, config=config)
 
 # if wandb_log and master_process:
 #     import wandb
