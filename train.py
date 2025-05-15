@@ -20,10 +20,13 @@ import os
 import time
 import math
 import pickle
+import random
+import datetime
 from contextlib import nullcontext
 
 import numpy as np
 import torch
+from torch.utils.tensorboard import SummaryWriter
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import init_process_group, destroy_process_group
 
@@ -39,8 +42,7 @@ eval_iters = 200
 eval_only = False # if True, script exits right after the first eval
 always_save_checkpoint = True # if True, always save a checkpoint after each eval
 init_from = 'scratch' # 'scratch' or 'resume' or 'gpt2*'
-# wandb logging
-wandb_log = False # disabled by default
+# logging
 wandb_project = 'owt'
 wandb_run_name = 'gpt2' # 'run' + str(time.time())
 # data
@@ -48,6 +50,11 @@ dataset = 'openwebtext'
 gradient_accumulation_steps = 5 * 8 # used to simulate larger batch sizes
 batch_size = 12 # if gradient_accumulation_steps > 1, this is the micro-batch size
 block_size = 1024
+# mode
+seed = 0
+curvature = 0.
+head_mode = 'euc'
+attn_mode = 'euc'
 # model
 n_layer = 12
 n_head = 12
@@ -55,7 +62,7 @@ n_embd = 768
 dropout = 0.0 # for pretraining 0 is good, for finetuning try 0.1+
 bias = False # do we use bias inside LayerNorm and Linear layers?
 # adamw optimizer
-learning_rate = 6e-4 # max learning rate
+init_lr = 6e-4 # max learning rate
 max_iters = 600000 # total number of training iterations
 weight_decay = 1e-1
 beta1 = 0.9
@@ -63,9 +70,9 @@ beta2 = 0.95
 grad_clip = 1.0 # clip gradients at this value, or disable if == 0.0
 # learning rate decay settings
 decay_lr = True # whether to decay the learning rate
-warmup_iters = 2000 # how many steps to warm up for
 lr_decay_iters = 600000 # should be ~= max_iters per Chinchilla
-min_lr = 6e-5 # minimum learning rate, should be ~= learning_rate/10 per Chinchilla
+warmup_iters = 1000
+min_lr = 6e-5 # minimum learning rate, should be ~= init_lr/10 per Chinchilla
 # DDP settings
 backend = 'nccl' # 'nccl', 'gloo', etc.
 # system
@@ -77,6 +84,11 @@ config_keys = [k for k,v in globals().items() if not k.startswith('_') and isins
 exec(open('configurator.py').read()) # overrides from command line or config file
 config = {k: globals()[k] for k in config_keys} # will be useful for logging
 # -----------------------------------------------------------------------------
+
+random.seed(seed)
+np.random.seed(seed)
+torch.manual_seed(seed)
+torch.cuda.manual_seed_all(seed)
 
 # various inits, derived attributes, I/O setup
 ddp = int(os.environ.get('RANK', -1)) != -1 # is this a ddp run?
@@ -193,10 +205,10 @@ if block_size < model.config.block_size:
 model.to(device)
 
 # initialize a GradScaler. If enabled=False scaler is a no-op
-scaler = torch.cuda.amp.GradScaler(enabled=(dtype == 'float16'))
+scaler = torch.cuda.amp.GradScaler('cuda', enabled=(dtype == 'float16'))
 
 # optimizer
-optimizer = model.configure_optimizers(weight_decay, learning_rate, (beta1, beta2), device_type)
+optimizer = model.configure_optimizers(weight_decay, init_lr, (beta1, beta2), device_type)
 if init_from == 'resume':
     optimizer.load_state_dict(checkpoint['optimizer'])
 checkpoint = None # free up memory
@@ -231,7 +243,7 @@ def estimate_loss():
 def get_lr(it):
     # 1) linear warmup for warmup_iters steps
     if it < warmup_iters:
-        return learning_rate * (it + 1) / (warmup_iters + 1)
+        return init_lr * (it + 1) / (warmup_iters + 1)
     # 2) if it > lr_decay_iters, return min learning rate
     if it > lr_decay_iters:
         return min_lr
@@ -239,12 +251,59 @@ def get_lr(it):
     decay_ratio = (it - warmup_iters) / (lr_decay_iters - warmup_iters)
     assert 0 <= decay_ratio <= 1
     coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio)) # coeff ranges 0..1
-    return min_lr + coeff * (learning_rate - min_lr)
+    return min_lr + coeff * (init_lr - min_lr)
 
 # logging
-if wandb_log and master_process:
-    import wandb
-    wandb.init(project=wandb_project, name=wandb_run_name, config=config)
+if master_process:
+    def create_run_id(config, dataset, timestamp):
+        dataset_aliases = {
+            'shakespeare_char': 'sh'
+            # 'TinyStoriesChar': 'tsc',
+            # 'TinyStories': 'ts',
+            # 'FineWeb': 'fw'
+        }
+        mode_aliases = {
+            'euc': 'e',
+            'hyp': 'h'
+        }
+        
+        date = timestamp.strftime('%m.%d') 
+        seconds_since_midnight = (timestamp - timestamp.replace(hour=0, minute=0, second=0, microsecond=0)).seconds
+        
+        head, attn = mode_aliases[head_mode], mode_aliases[attn_mode]
+        arch = f"{head}{attn}"
+        
+        hyp_params = ""
+        if 'h' in arch:
+            hyp_params = f"_k{curvature}"
+            # if k_lr:
+            #     hyp_params += f"_lr{k_lr:.0e}"  # Using shorter scientific notation
+        
+        run_id = f"{seconds_since_midnight}_{dataset_aliases[dataset]}_{arch}{hyp_params}_s{seed}"
+        return date, run_id
+
+    # Create the run ID
+    now = datetime.datetime.now()
+    date, run_id = create_run_id(config, dataset, now)
+    # Create log directory and file
+    logdir = f'runs/{date}/{run_id}/'
+    os.makedirs(logdir, exist_ok=True)
+    os.makedirs(os.path.join(logdir, "tensorboard_logs"), exist_ok=True)
+
+    print(f"Logs for this run will be stored in: {logdir}")
+
+    print("Writing logs to: " + os.path.join(logdir, "tensorboard_logs"))
+    writer = SummaryWriter(log_dir=os.path.join(logdir, "tensorboard_logs"))
+
+    # config_path = os.path.join(logdir, "config.json")
+    # with open(config_path, "w") as f:
+    #     json.dump(vars(args), f, indent=4)
+
+    # def pretty_json(hp):
+    #     json_hp = json.dumps(hp, indent=2)
+    #     return "".join("\t" + line for line in json_hp.splitlines(True))
+
+    # writer.add_text("run_params", pretty_json(vars(args)))
 
 # training loop
 X, Y = get_batch('train') # fetch the very first batch
@@ -255,7 +314,7 @@ running_mfu = -1.0
 while True:
 
     # determine and set the learning rate for this iteration
-    lr = get_lr(iter_num) if decay_lr else learning_rate
+    lr = get_lr(iter_num) if decay_lr else init_lr
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 
@@ -263,14 +322,9 @@ while True:
     if iter_num % eval_interval == 0 and master_process:
         losses = estimate_loss()
         print(f"step {iter_num}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
-        if wandb_log:
-            wandb.log({
-                "iter": iter_num,
-                "train/loss": losses['train'],
-                "val/loss": losses['val'],
-                "lr": lr,
-                "mfu": running_mfu*100, # convert to percentage
-            })
+        tokens_seen = tokens_per_iter * iter_num
+        writer.add_scalar('Loss/Train', losses['train'], tokens_seen)
+        writer.add_scalar('Loss/Validation', losses['val'], tokens_seen)
         if losses['val'] < best_val_loss or always_save_checkpoint:
             best_val_loss = losses['val']
             if iter_num > 0:
@@ -331,6 +385,9 @@ while True:
     # termination conditions
     if iter_num > max_iters:
         break
+
+if master_process:
+    writer.close()
 
 if ddp:
     destroy_process_group()
